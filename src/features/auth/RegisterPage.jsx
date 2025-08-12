@@ -99,6 +99,17 @@ export default function RegisterPage() {
 
     try {
       setLoading(true);
+      console.log('Registration attempt started:', {
+        email: formData.email,
+        displayName: formData.displayName,
+        timestamp: new Date().toISOString(),
+        environment: import.meta.env.MODE,
+        firebaseConfig: {
+          apiKey: import.meta.env.VITE_FIREBASE_API_KEY ? 'Present' : 'Missing',
+          authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID
+        }
+      });
       
       // Create user account
       const userCredential = await createUserWithEmailAndPassword(
@@ -108,8 +119,14 @@ export default function RegisterPage() {
       );
       
       const user = userCredential.user;
+      console.log('User account created successfully:', {
+        uid: user.uid,
+        email: user.email,
+        emailVerified: user.emailVerified
+      });
       
       // Initialize user settings
+      console.log('Initializing user settings...');
       await settingsService.setUserSettings(user.uid, {
         role: 'user',
         canManageMultipleBlogs: false,
@@ -118,14 +135,33 @@ export default function RegisterPage() {
         totalStorageMB: 100,
         displayName: formData.displayName.trim()
       });
+      console.log('User settings initialized successfully');
       
       // Create default blog
+      console.log('Creating default blog...');
       await blogService.ensureDefaultBlog(user.uid);
+      console.log('Default blog created successfully');
       
       toast.success('Account created successfully! Welcome to Admin CMS!');
       navigate('/dashboard');
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('=== REGISTRATION FAILED ===');
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Full error object:', error);
+      console.error('Error stack:', error.stack);
+      console.error('Firebase Auth instance:', auth);
+      console.error('Environment variables check:', {
+        apiKey: import.meta.env.VITE_FIREBASE_API_KEY ? 'Present' : 'Missing',
+        authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+        projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+        storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ? 'Present' : 'Missing',
+        appId: import.meta.env.VITE_FIREBASE_APP_ID ? 'Present' : 'Missing'
+      });
+      console.error('Current URL:', window.location.href);
+      console.error('User agent:', navigator.userAgent);
+      console.error('=== END REGISTRATION ERROR ===');
       
       let errorMessage = 'Failed to create account';
       if (error.code === 'auth/email-already-in-use') {
