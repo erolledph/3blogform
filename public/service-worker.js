@@ -1,8 +1,8 @@
 // Service Worker for Admin CMS - Offline Support and Performance
 const CACHE_NAME = 'admin-cms-v2';
-const STATIC_CACHE = 'admin-cms-static-v2';
-const DYNAMIC_CACHE = 'admin-cms-dynamic-v2';
-const API_CACHE = 'admin-cms-api-v2';
+const STATIC_CACHE = 'admin-cms-static-v1';
+const DYNAMIC_CACHE = 'admin-cms-dynamic-v1';
+const API_CACHE = 'admin-cms-api-v1';
 
 // Assets to cache immediately
 const STATIC_ASSETS = [
@@ -10,14 +10,6 @@ const STATIC_ASSETS = [
   '/index.html',
   '/fire.svg',
   '/manifest.json'
-];
-
-// API endpoints to cache
-const API_ENDPOINTS = [
-  '/api/content',
-  '/api/product',
-  '/.netlify/functions/content-api',
-  '/.netlify/functions/product-api'
 ];
 
 // Cache strategies
@@ -57,8 +49,7 @@ self.addEventListener('activate', (event) => {
       caches.keys().then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            // Delete ALL old caches to ensure clean slate
-            if (!cacheName.includes('-v2')) {
+            if (!cacheName.startsWith('admin-cms-')) {
               console.log('Service Worker: Deleting old cache:', cacheName);
               return caches.delete(cacheName);
             }
@@ -87,6 +78,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
+  // Skip Firebase Authentication requests - NEVER cache these
+  if (url.hostname.includes('identitytoolkit.googleapis.com') || 
+      url.hostname.includes('securetoken.googleapis.com') ||
+      url.pathname.includes('auth') ||
+      url.pathname.includes('login') ||
+      url.pathname.includes('signup')) {
+    console.log('Service Worker: Bypassing auth request:', url.href);
+    return;
+  }
+
+  // Skip JavaScript bundles - let them load fresh to avoid auth issues
+  if (request.destination === 'script' || 
+      url.pathname.endsWith('.js') ||
+      url.pathname.includes('chunk-') ||
+      url.pathname.includes('index-')) {
+    console.log('Service Worker: Bypassing JS bundle:', url.href);
+    return;
+  }
+
   // Determine cache strategy based on request type
   let strategy = CACHE_STRATEGIES.NETWORK_FIRST;
   let cacheName = DYNAMIC_CACHE;
@@ -150,15 +160,6 @@ async function handleRequest(request, strategy, cacheName) {
 // Special handler for Firebase Storage images
 async function handleFirebaseStorageImage(request, cache) {
   try {
-    // Add cache busting for Firebase Storage images to prevent stale content
-    const url = new URL(request.url);
-    
-    // Check if this is a request for the old domain
-    if (url.hostname.includes('2blogform.netlify.app')) {
-      console.log('Service Worker: Blocking request to old domain:', request.url);
-      return new Response('', { status: 404, statusText: 'Old domain blocked' });
-    }
-    
     // Always try network first for Firebase Storage to get fresh images
     const networkResponse = await fetch(request);
     
@@ -205,13 +206,6 @@ function isFirebaseStorageImage(url) {
 
 // Cache first strategy
 async function cacheFirst(request, cache) {
-  // Block requests to old domain
-  const url = new URL(request.url);
-  if (url.hostname.includes('2blogform.netlify.app')) {
-    console.log('Service Worker: Blocking request to old domain:', request.url);
-    return new Response('', { status: 404, statusText: 'Old domain blocked' });
-  }
-  
   const cachedResponse = await cache.match(request);
   
   if (cachedResponse) {
@@ -228,22 +222,14 @@ async function cacheFirst(request, cache) {
     return networkResponse;
   } catch (error) {
     console.warn('Service Worker: Network request failed:', error);
-    
-    // Return offline fallback if available
-    return getOfflineFallback(request);
+    // For critical assets, don't return offline fallback - let the error propagate
+    throw error;
   }
 }
 
 // Network first strategy
 async function networkFirst(request, cache) {
   try {
-    // Block requests to old domain
-    const url = new URL(request.url);
-    if (url.hostname.includes('2blogform.netlify.app')) {
-      console.log('Service Worker: Blocking request to old domain:', request.url);
-      return new Response('', { status: 404, statusText: 'Old domain blocked' });
-    }
-    
     const networkResponse = await fetch(request);
     
     if (request.method === 'GET' && networkResponse.ok) {
@@ -260,19 +246,13 @@ async function networkFirst(request, cache) {
       return cachedResponse;
     }
     
-    return getOfflineFallback(request);
+    // For critical assets, don't return offline fallback - let the error propagate
+    throw error;
   }
 }
 
 // Stale while revalidate strategy
 async function staleWhileRevalidate(request, cache) {
-  // Block requests to old domain
-  const url = new URL(request.url);
-  if (url.hostname.includes('2blogform.netlify.app')) {
-    console.log('Service Worker: Blocking request to old domain:', request.url);
-    return new Response('', { status: 404, statusText: 'Old domain blocked' });
-  }
-  
   const cachedResponse = await cache.match(request);
   
   // Always try to fetch fresh data in background
@@ -296,7 +276,24 @@ async function staleWhileRevalidate(request, cache) {
   try {
     return await fetchPromise;
   } catch (error) {
-    return getOfflineFallback(request);
+    // For API requests, return a proper error response
+    if (isApiEndpoint(new URL(request.url))) {
+      return new Response(
+        JSON.stringify({
+          error: 'Service temporarily unavailable',
+          message: 'Please check your internet connection',
+          offline: true
+        }),
+        {
+          status: 503,
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-cache'
+          }
+        }
+      );
+    }
+    throw error;
   }
 }
 
@@ -339,11 +336,8 @@ function getOfflineFallback(request) {
     );
   }
   
-  // Default offline response
-  return new Response('Offline', {
-    status: 503,
-    statusText: 'Service Unavailable'
-  });
+  // For other requests, don't return a fallback - let them fail naturally
+  throw new Error('Resource not available offline');
 }
 
 // Helper functions to categorize requests
@@ -455,12 +449,6 @@ self.addEventListener('message', (event) => {
       self.skipWaiting();
       break;
       
-    case 'CLEAR_ALL_CACHES':
-      clearAllCaches().then(() => {
-        event.ports[0].postMessage({ type: 'ALL_CACHES_CLEARED' });
-      });
-      break;
-      
     case 'GET_CACHE_STATS':
       getCacheStats().then(stats => {
         event.ports[0].postMessage({ type: 'CACHE_STATS', payload: stats });
@@ -517,50 +505,6 @@ async function prefetchUrls(urls) {
   });
   
   await Promise.allSettled(fetchPromises);
-}
-
-// Performance monitoring
-self.addEventListener('fetch', (event) => {
-  // Track performance metrics
-  const startTime = performance.now();
-  
-  event.respondWith(
-    handleRequest(event.request, getStrategy(event.request), getCacheName(event.request))
-      .then(response => {
-        const endTime = performance.now();
-        const duration = endTime - startTime;
-        
-        // Log slow requests
-        if (duration > 1000) {
-          console.warn('Slow request detected:', event.request.url, `${duration}ms`);
-        }
-        
-        return response;
-      })
-  );
-});
-
-// Get strategy for request
-function getStrategy(request) {
-  const url = new URL(request.url);
-  
-  if (isStaticAsset(url)) return CACHE_STRATEGIES.CACHE_FIRST;
-  if (isApiEndpoint(url)) return CACHE_STRATEGIES.STALE_WHILE_REVALIDATE;
-  if (isImageRequest(url)) return CACHE_STRATEGIES.CACHE_FIRST;
-  if (isAdminFunction(url)) return CACHE_STRATEGIES.NETWORK_ONLY;
-  
-  return CACHE_STRATEGIES.NETWORK_FIRST;
-}
-
-// Get cache name for request
-function getCacheName(request) {
-  const url = new URL(request.url);
-  
-  if (isStaticAsset(url)) return STATIC_CACHE;
-  if (isApiEndpoint(url)) return API_CACHE;
-  if (isImageRequest(url)) return STATIC_CACHE;
-  
-  return DYNAMIC_CACHE;
 }
 
 console.log('Service Worker: Loaded and ready');
