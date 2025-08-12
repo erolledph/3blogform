@@ -21,6 +21,26 @@ console.log('Firebase config loaded:', {
   appId: firebaseConfig.appId ? 'Present' : 'Missing'
 });
 
+// Additional production debugging
+console.log('Environment details:', {
+  mode: import.meta.env.MODE,
+  prod: import.meta.env.PROD,
+  dev: import.meta.env.DEV,
+  baseUrl: import.meta.env.BASE_URL,
+  currentUrl: typeof window !== 'undefined' ? window.location.href : 'Server-side'
+});
+
+// Validate critical config values
+if (!firebaseConfig.apiKey) {
+  console.error('CRITICAL: Firebase API key is missing!');
+}
+if (!firebaseConfig.authDomain) {
+  console.error('CRITICAL: Firebase auth domain is missing!');
+}
+if (!firebaseConfig.projectId) {
+  console.error('CRITICAL: Firebase project ID is missing!');
+}
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
@@ -31,5 +51,18 @@ console.log('Firebase services initialized:', {
   db: !!db,
   storage: !!storage
 });
+
+// Test Firebase connection
+if (typeof window !== 'undefined') {
+  auth.onAuthStateChanged((user) => {
+    console.log('Auth state changed:', {
+      isAuthenticated: !!user,
+      uid: user?.uid,
+      email: user?.email,
+      emailVerified: user?.emailVerified,
+      timestamp: new Date().toISOString()
+    });
+  });
+}
 
 export default app;
