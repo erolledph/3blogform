@@ -65,11 +65,40 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
+      console.log('Login attempt started:', {
+        email: formData.email,
+        timestamp: new Date().toISOString(),
+        environment: import.meta.env.MODE,
+        firebaseConfig: {
+          apiKey: import.meta.env.VITE_FIREBASE_API_KEY ? 'Present' : 'Missing',
+          authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID
+        }
+      });
+      
       await login(formData.email, formData.password);
+      console.log('Login successful for:', formData.email);
       // Don't navigate immediately - let the auth state change handle it
       toast.success('Login successful!');
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('=== LOGIN FAILED ===');
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Full error object:', error);
+      console.error('Error stack:', error.stack);
+      console.error('Firebase Auth instance:', auth);
+      console.error('Environment variables check:', {
+        apiKey: import.meta.env.VITE_FIREBASE_API_KEY ? 'Present' : 'Missing',
+        authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+        projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+        storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID ? 'Present' : 'Missing',
+        appId: import.meta.env.VITE_FIREBASE_APP_ID ? 'Present' : 'Missing'
+      });
+      console.error('Current URL:', window.location.href);
+      console.error('User agent:', navigator.userAgent);
+      console.error('=== END LOGIN ERROR ===');
+      
       toast.error('Failed to login. Please check your credentials.');
       setLoading(false);
     } finally {
