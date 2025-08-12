@@ -24,10 +24,12 @@ export function AuthProvider({ children }) {
   const cache = useCache();
 
   function login(email, password) {
+    console.log('useAuth.login called with:', { email, timestamp: new Date().toISOString() });
     return signInWithEmailAndPassword(auth, email, password);
   }
 
   function logout() {
+    console.log('useAuth.logout called');
     // Clear cache on logout
     cache.clear();
     return signOut(auth);
