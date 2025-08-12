@@ -1,8 +1,8 @@
 // Service Worker for Admin CMS - Offline Support and Performance
-const CACHE_NAME = 'admin-cms-v1';
-const STATIC_CACHE = 'admin-cms-static-v1';
-const DYNAMIC_CACHE = 'admin-cms-dynamic-v1';
-const API_CACHE = 'admin-cms-api-v1';
+const CACHE_NAME = 'admin-cms-v2';
+const STATIC_CACHE = 'admin-cms-static-v2';
+const DYNAMIC_CACHE = 'admin-cms-dynamic-v2';
+const API_CACHE = 'admin-cms-api-v2';
 
 // Assets to cache immediately
 const STATIC_ASSETS = [
@@ -57,9 +57,8 @@ self.addEventListener('activate', (event) => {
       caches.keys().then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== STATIC_CACHE && 
-                cacheName !== DYNAMIC_CACHE && 
-                cacheName !== API_CACHE) {
+            // Delete ALL old caches to ensure clean slate
+            if (!cacheName.includes('-v2')) {
               console.log('Service Worker: Deleting old cache:', cacheName);
               return caches.delete(cacheName);
             }
@@ -151,6 +150,15 @@ async function handleRequest(request, strategy, cacheName) {
 // Special handler for Firebase Storage images
 async function handleFirebaseStorageImage(request, cache) {
   try {
+    // Add cache busting for Firebase Storage images to prevent stale content
+    const url = new URL(request.url);
+    
+    // Check if this is a request for the old domain
+    if (url.hostname.includes('2blogform.netlify.app')) {
+      console.log('Service Worker: Blocking request to old domain:', request.url);
+      return new Response('', { status: 404, statusText: 'Old domain blocked' });
+    }
+    
     // Always try network first for Firebase Storage to get fresh images
     const networkResponse = await fetch(request);
     
@@ -197,6 +205,13 @@ function isFirebaseStorageImage(url) {
 
 // Cache first strategy
 async function cacheFirst(request, cache) {
+  // Block requests to old domain
+  const url = new URL(request.url);
+  if (url.hostname.includes('2blogform.netlify.app')) {
+    console.log('Service Worker: Blocking request to old domain:', request.url);
+    return new Response('', { status: 404, statusText: 'Old domain blocked' });
+  }
+  
   const cachedResponse = await cache.match(request);
   
   if (cachedResponse) {
@@ -222,6 +237,13 @@ async function cacheFirst(request, cache) {
 // Network first strategy
 async function networkFirst(request, cache) {
   try {
+    // Block requests to old domain
+    const url = new URL(request.url);
+    if (url.hostname.includes('2blogform.netlify.app')) {
+      console.log('Service Worker: Blocking request to old domain:', request.url);
+      return new Response('', { status: 404, statusText: 'Old domain blocked' });
+    }
+    
     const networkResponse = await fetch(request);
     
     if (request.method === 'GET' && networkResponse.ok) {
@@ -244,6 +266,13 @@ async function networkFirst(request, cache) {
 
 // Stale while revalidate strategy
 async function staleWhileRevalidate(request, cache) {
+  // Block requests to old domain
+  const url = new URL(request.url);
+  if (url.hostname.includes('2blogform.netlify.app')) {
+    console.log('Service Worker: Blocking request to old domain:', request.url);
+    return new Response('', { status: 404, statusText: 'Old domain blocked' });
+  }
+  
   const cachedResponse = await cache.match(request);
   
   // Always try to fetch fresh data in background
@@ -424,6 +453,12 @@ self.addEventListener('message', (event) => {
   switch (type) {
     case 'SKIP_WAITING':
       self.skipWaiting();
+      break;
+      
+    case 'CLEAR_ALL_CACHES':
+      clearAllCaches().then(() => {
+        event.ports[0].postMessage({ type: 'ALL_CACHES_CLEARED' });
+      });
       break;
       
     case 'GET_CACHE_STATS':
